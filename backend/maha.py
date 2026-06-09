@@ -55,7 +55,7 @@ from voice.llm import generate_response, generate_response_simple, generate_voic
 
 app = Flask(__name__, static_folder="templates", static_url_path="")
 CORS(app, cors_allowed_origins="*")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet", engineio_logger=False, logger=False)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent", engineio_logger=False, logger=False)
 sessions = {}
 @app.route("/")
 def home():
