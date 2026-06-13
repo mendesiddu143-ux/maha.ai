@@ -54,8 +54,8 @@ from voice.stt import transcribe_audio
 from voice.llm import generate_response, generate_response_simple, generate_voice_response
 
 app = Flask(__name__, static_folder="templates", static_url_path="")
-CORS(app, cors_allowed_origins="*")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", allow_upgrades=False)
+CORS(app, cors_allowed_origins="*", supports_credentials=True)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", allow_upgrades=False, cors_credentials=True)
 sessions = {}
 @app.route("/")
 def home():
