@@ -67,6 +67,7 @@ def serve(path):
 @app.route("/health")
 def health():
     return jsonify({"status": "Maha.ai running!"})
+    return jsonify({"status": "Maha.ai running!"})
 
 @app.route("/health")
 def health():
