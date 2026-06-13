@@ -5,13 +5,12 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import os
-
 import requests
 import base64
 
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")
 
-def sarvam_tts(text, lang="hi"):
+def sarvam_tts(text, lang="te"):
     if not SARVAM_API_KEY:
         return None
     lang_map = {
@@ -20,11 +19,11 @@ def sarvam_tts(text, lang="hi"):
         "pa":"pa-IN","en":"en-IN"
     }
     speaker_map = {
-    "hi-IN":"anushka","te-IN":"anushka","ta-IN":"anushka",
-    "ml-IN":"anushka","kn-IN":"anushka","mr-IN":"anushka",
-    "bn-IN":"anushka","gu-IN":"anushka","pa-IN":"anushka","en-IN":"anushka"
-}
-    sarvam_lang = lang_map.get(lang[:2], "hi-IN")
+        "hi-IN":"anushka","te-IN":"anushka","ta-IN":"anushka",
+        "ml-IN":"anushka","kn-IN":"anushka","mr-IN":"anushka",
+        "bn-IN":"anushka","gu-IN":"anushka","pa-IN":"anushka","en-IN":"anushka"
+    }
+    sarvam_lang = lang_map.get(lang[:2], "te-IN")
     try:
         resp = requests.post(
             "https://api.sarvam.ai/text-to-speech",
@@ -32,7 +31,7 @@ def sarvam_tts(text, lang="hi"):
             json={
                 "inputs": [text],
                 "target_language_code": sarvam_lang,
-                "speaker": speaker_map.get(sarvam_lang, "meera"),
+                "speaker": speaker_map.get(sarvam_lang, "anushka"),
                 "pitch": 0, "pace": 0.9, "loudness": 1.5,
                 "speech_sample_rate": 22050,
                 "enable_preprocessing": True,
@@ -50,13 +49,15 @@ def sarvam_tts(text, lang="hi"):
     except Exception as e:
         print(f"[TTS] Exception: {e}")
         return None
+
 from voice.stt import transcribe_audio
 from voice.llm import generate_response, generate_response_simple, generate_voice_response
 
 app = Flask(__name__, static_folder="templates", static_url_path="")
-CORS(app, cors_allowed_origins="*", supports_credentials=True)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", allow_upgrades=False, cors_credentials=True)
+CORS(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", allow_upgrades=False)
 sessions = {}
+
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
@@ -64,12 +65,8 @@ def serve(path):
     if path and os.path.exists(os.path.join(build_dir, path)):
         return send_from_directory(build_dir, path)
     return send_from_directory(build_dir, "index.html")
-@app.route("/health")
-def health():
-    return jsonify({"status": "Maha.ai running!"})
-    return jsonify({"status": "Maha.ai running!"})
 
-@app.route("/health")
+@app.route("/api/health")
 def health():
     return jsonify({"status": "Maha.ai running!"})
 
@@ -77,17 +74,18 @@ def health():
 def chat():
     if request.method == "OPTIONS":
         return jsonify({}), 200
-    data = request.json
+    data = request.json or {}
     user_message = data.get("message", "")
-    language = data.get("language", "English")
+    language = data.get("language", "Telugu")
     user_name = data.get("userName", "friend")
-    reply = generate_response_simple(user_message, language, user_name)
+    history = data.get("history", [])
+    reply = generate_response_simple(user_message, language, user_name, history)
     return jsonify({"reply": reply})
 
 @socketio.on("connect")
 def handle_connect(auth=None):
     sid = request.sid
-    sessions[sid] = {"history": [], "language": "en"}
+    sessions[sid] = {"history": [], "language": "te"}
     emit("connected", {"message": "Connected to Maha.ai!"})
     print(f"[+] Connected: {sid}")
 
@@ -105,9 +103,13 @@ def handle_voice_input(data):
         emit("error", {"message": "No audio received"})
         return
     emit("status", {"state": "listening", "message": "Listening..."})
-    stt_result = transcribe_audio(audio_b64)
+    try:
+        stt_result = transcribe_audio(audio_b64)
+    except Exception as e:
+        emit("status", {"state": "idle", "message": "Could not hear. Try again!"})
+        return
     transcript = stt_result.get("transcript", "").strip()
-    detected_lang = stt_result.get("language", "en")
+    detected_lang = stt_result.get("language", "te")
     if not transcript:
         emit("status", {"state": "idle", "message": "Could not hear you. Try again!"})
         return
@@ -120,9 +122,9 @@ def handle_voice_input(data):
     sessions[sid]["history"].append({"role": "user", "content": transcript})
     sessions[sid]["history"].append({"role": "assistant", "content": response_text})
     sessions[sid]["history"] = sessions[sid]["history"][-20:]
+    audio = sarvam_tts(response_text, detected_lang)
     emit("ai_text", {"text": response_text})
-    print(f"[AI] {response_text}")
-    emit("voice_output", {"audio": None, "text": response_text})
+    emit("voice_output", {"audio": audio, "text": response_text})
     emit("status", {"state": "idle", "message": "Ready"})
 
 @socketio.on("clear_history")
@@ -136,34 +138,44 @@ def handle_clear():
 def handle_start_call(data):
     sid = request.sid
     user_name = data.get("userName", "Friend")
+    lang = data.get("lang", "te")
     sessions[sid]["history"] = []
+    sessions[sid]["language"] = lang
     emit("status", {"state": "thinking", "message": "Connecting..."})
-    from voice.llm import generate_voice_response
-    greeting = generate_voice_response("greeting", user_name, [])
+    try:
+        greeting = generate_voice_response("greeting", user_name, [])
+    except Exception as e:
+        greeting = "Namaskaram! Nenu Maha AI ni. Ela unnaru?"
+        print(f"[Greeting Error] {e}")
     sessions[sid]["history"].append({"role": "assistant", "content": greeting})
-    
-    audio = sarvam_tts(greeting, sessions[sid].get("language", "hi"))
+    audio = sarvam_tts(greeting, lang)
     emit("ai_response", {"text": greeting, "audio": audio})
     print(f"[Greeting] {greeting}")
 
 @socketio.on("voice_message")
 def handle_voice_message(data):
     sid = request.sid
-    text = data.get("text", "").strip()
-    lang = data.get("lang", "en")
+    text = (data.get("text") or "").strip()
+    lang = data.get("lang") or sessions[sid].get("language", "te")
     if not text:
         return
-    print(f"[User said] {text}")
+    sessions[sid]["language"] = lang
+    print(f"[User → {lang}] {text}")
     emit("status", {"state": "thinking", "message": "Thinking..."})
-    from voice.llm import generate_voice_response
-    history = sessions[sid].get("history", [])
-    response = generate_voice_response(text, "", history)
+    try:
+        history = sessions[sid].get("history", [])
+        response = generate_voice_response(text, "", history)
+    except Exception as e:
+        response = "Oka second wait cheyandi, try cheyandi!"
+        print(f"[LLM Error] {e}")
     sessions[sid]["history"].append({"role": "user", "content": text})
     sessions[sid]["history"].append({"role": "assistant", "content": response})
     sessions[sid]["history"] = sessions[sid]["history"][-20:]
-   
     audio = sarvam_tts(response, lang)
     emit("ai_response", {"text": response, "audio": audio})
-    print(f"[Maha] {response}")
+    print(f"[Maha → {lang}] {response}")
+
 if __name__ == "__main__":
+    print("[Maha.ai] Starting...")
+    print(f"[Maha.ai] Sarvam: {'SET' if SARVAM_API_KEY else 'NOT SET'}")
     socketio.run(app, debug=False, port=5000, use_reloader=False, allow_unsafe_werkzeug=True)
