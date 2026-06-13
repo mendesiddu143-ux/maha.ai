@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const BACKEND = "http://localhost:5000";
+const BACKEND = "https://maha-ai-4qbe.onrender.com";
 
 const STYLES = `
   @keyframes arrowFly { 0%{transform:translateY(-50%) translateX(-400px)} 100%{transform:translateY(-50%) translateX(calc(100vw + 500px))} }
