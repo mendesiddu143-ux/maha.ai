@@ -61,7 +61,12 @@ sessions = {}
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
-    build_dir = os.path.join(os.path.dirname(__file__), "templates", "build")
+    build_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "build")
+    if not os.path.exists(build_dir):
+        return jsonify({"error": "Build not found", "path": build_dir}), 404
+    if path and os.path.exists(os.path.join(build_dir, path)):
+        return send_from_directory(build_dir, path)
+    return send_from_directory(build_dir, "index.html")
     if path and os.path.exists(os.path.join(build_dir, path)):
         return send_from_directory(build_dir, path)
     return send_from_directory(build_dir, "index.html")
