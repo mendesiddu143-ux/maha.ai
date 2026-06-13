@@ -53,17 +53,17 @@ def sarvam_tts(text, lang="hi"):
 from voice.stt import transcribe_audio
 from voice.llm import generate_response, generate_response_simple, generate_voice_response
 
-app = Flask(__name__, static_folder="templates/build", static_url_path="")
+app = Flask(__name__, static_folder="templates", static_url_path="")
 CORS(app, cors_allowed_origins="*", supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", allow_upgrades=False, cors_credentials=True)
 sessions = {}
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
-    if path and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, "index.html")
-
+    build_dir = os.path.join(os.path.dirname(__file__), "templates", "build")
+    if path and os.path.exists(os.path.join(build_dir, path)):
+        return send_from_directory(build_dir, path)
+    return send_from_directory(build_dir, "index.html")
 @app.route("/health")
 def health():
     return jsonify({"status": "Maha.ai running!"})
