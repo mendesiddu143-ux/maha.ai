@@ -20,9 +20,9 @@ def sarvam_tts(text, lang="hi"):
         "pa":"pa-IN","en":"en-IN"
     }
     speaker_map = {
-    "hi-IN":"abhilash","te-IN":"abhilash","ta-IN":"abhilash",
-    "ml-IN":"abhilash","kn-IN":"abhilash","mr-IN":"abhilash",
-    "bn-IN":"abhilash","gu-IN":"abhilash","pa-IN":"abhilash","en-IN":"abhilash"
+    "hi-IN":"anushka","te-IN":"anushka","ta-IN":"anushka",
+    "ml-IN":"anushka","kn-IN":"anushka","mr-IN":"anushka",
+    "bn-IN":"anushka","gu-IN":"anushka","pa-IN":"anushka","en-IN":"anushka"
 }
     sarvam_lang = lang_map.get(lang[:2], "hi-IN")
     try:
@@ -33,7 +33,7 @@ def sarvam_tts(text, lang="hi"):
                 "inputs": [text],
                 "target_language_code": sarvam_lang,
                 "speaker": speaker_map.get(sarvam_lang, "meera"),
-                "pitch": 0, "pace": 1.1, "loudness": 1.5,
+                "pitch": 0, "pace": 0.9, "loudness": 1.5,
                 "speech_sample_rate": 22050,
                 "enable_preprocessing": True,
                 "model": "bulbul:v2"
@@ -55,7 +55,7 @@ from voice.llm import generate_response, generate_response_simple, generate_voic
 
 app = Flask(__name__, static_folder="templates", static_url_path="")
 CORS(app, cors_allowed_origins="*")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent", engineio_logger=False, logger=False)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", allow_upgrades=False)
 sessions = {}
 @app.route("/")
 def home():
@@ -158,4 +158,4 @@ def handle_voice_message(data):
     emit("ai_response", {"text": response, "audio": audio})
     print(f"[Maha] {response}")
 if __name__ == "__main__":
-   socketio.run(app, debug=False, port=5000, use_reloader=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=False, port=5000, use_reloader=False, allow_unsafe_werkzeug=True)

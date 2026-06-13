@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
+const BACKEND = "http://localhost:5000";
 
 const STYLES = `
   @keyframes arrowFly { 0%{transform:translateY(-50%) translateX(-400px)} 100%{transform:translateY(-50%) translateX(calc(100vw + 500px))} }
@@ -23,10 +24,10 @@ const STYLES = `
   @keyframes fp4 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-12px,-18px)} }
   @keyframes fp5 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(22px,-12px)} }
   @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  @keyframes pulseRing { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.8);opacity:0} }
   ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(124,58,237,0.3);border-radius:2px}
 `;
 
-// ── LOGO ───────────────────────────────────────────────────────────────────────
 function MahaLogo({ size = 36 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
@@ -58,7 +59,6 @@ function MahaLogo({ size = 36 }) {
   );
 }
 
-// ── FUTURISTIC ORB ─────────────────────────────────────────────────────────────
 function FuturisticOrb({ size = 200, active = false }) {
   const rings = [
     { w: 280, anim: "ringOrbit1", dur: "6s", color: "rgba(124,58,237,0.8)" },
@@ -93,7 +93,6 @@ function FuturisticOrb({ size = 200, active = false }) {
   );
 }
 
-// ── LOADING SCREEN ─────────────────────────────────────────────────────────────
 function LoadingScreen({ onComplete }) {
   const [lettersShown, setLettersShown] = useState(0);
   const [phase, setPhase] = useState("black");
@@ -141,7 +140,6 @@ function LoadingScreen({ onComplete }) {
   );
 }
 
-// ── MAIN APP ───────────────────────────────────────────────────────────────────
 function App() {
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState("landing");
@@ -157,13 +155,12 @@ function App() {
 
   if(loading) return <LoadingScreen onComplete={()=>setLoading(false)}/>;
   if(screen==="app"&&user) return <MainApp user={user} onLogout={handleLogout}/>;
-  if(screen==="call") return <FreeCall onBack={()=>setScreen("landing")}/>;
+  if(screen==="call") return <FreeCall onBack={()=>setScreen("landing")} onSignUp={()=>setScreen("signup")}/>;
   if(screen==="signup") return <SignUp onBack={()=>setScreen("landing")} onSuccess={handleLogin}/>;
   if(screen==="signin") return <SignIn onBack={()=>setScreen("landing")} onSuccess={handleLogin}/>;
   return <Landing onCall={()=>setScreen("call")} onSignUp={()=>setScreen("signup")} onSignIn={()=>setScreen("signin")}/>;
 }
 
-// ── MAIN APP INTERFACE ─────────────────────────────────────────────────────────
 function MainApp({ user, onLogout }) {
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -172,7 +169,7 @@ function MainApp({ user, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [orbMode, setOrbMode] = useState("idle");
-  const [selectedLang, setSelectedLang] = useState("English");
+  const [selectedLang, setSelectedLang] = useState("Telugu");
   const [view, setView] = useState("chat");
   const messagesEndRef = useRef(null);
 
@@ -192,15 +189,8 @@ function MainApp({ user, onLogout }) {
     localStorage.setItem("mahaHistory",JSON.stringify(newList));
   };
 
-  const newChat = () => {
-    const id = Date.now().toString();
-    setActiveId(id); setMessages([]);
-  };
-
-  const loadConversation = (conv) => {
-    setActiveId(conv.id); setMessages(conv.messages);
-  };
-
+  const newChat = () => { const id = Date.now().toString(); setActiveId(id); setMessages([]); };
+  const loadConversation = (conv) => { setActiveId(conv.id); setMessages(conv.messages); };
   const deleteConversation = (id, e) => {
     e.stopPropagation();
     const updated = conversations.filter(c=>c.id!==id);
@@ -209,32 +199,27 @@ function MainApp({ user, onLogout }) {
     if(activeId===id){ setActiveId(null); setMessages([]); }
   };
 
-  const speakText = (text) => {
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-IN"; u.rate = 0.95; u.pitch = 1.1;
-    setOrbMode("speaking");
-    u.onend = ()=>setOrbMode("idle");
-    const v = window.speechSynthesis.getVoices().find(v=>/zira|female|heera/i.test(v.name));
-    if(v) u.voice = v;
-    window.speechSynthesis.speak(u);
-  };
-
   const sendMessage = async (text) => {
     if(!text?.trim()) return;
     const userMsg = {id:Date.now(), text, sender:"user"};
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs); setInput(""); setLoading(true); setOrbMode("thinking");
     try {
-      const res = await fetch("https://maha-ai-4qbe.onrender.com/chat",{
+      const res = await fetch(`${BACKEND}/chat`,{
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({message:text, language:selectedLang, persona:"Maha", userName:user?.name})
+        body:JSON.stringify({
+          message:text,
+          language:selectedLang,
+          persona:"Maha",
+          userName:user?.name,
+          history:messages.map(m=>({role:m.sender==="user"?"user":"assistant", content:m.text}))
+        })
       });
       const data = await res.json();
       const aiMsg = {id:Date.now()+1, text:data.reply, sender:"ai"};
       const finalMsgs = [...newMsgs, aiMsg];
       setMessages(finalMsgs);
-      speakText(data.reply);
+      setOrbMode("idle");
       const convId = activeId || Date.now().toString();
       if(!activeId) setActiveId(convId);
       saveConversation(convId, finalMsgs, text.slice(0,40));
@@ -249,29 +234,18 @@ function MainApp({ user, onLogout }) {
     const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){ alert("Use Chrome for voice!"); return; }
     const rec = new SR();
-    rec.lang = selectedLang==="Telugu"?"te-IN":selectedLang==="Hindi"?"hi-IN":selectedLang==="Tamil"?"ta-IN":"en-IN";
+    rec.lang = selectedLang==="Telugu"?"te-IN":selectedLang==="Hindi"?"hi-IN":selectedLang==="Tamil"?"ta-IN":selectedLang==="Kannada"?"kn-IN":selectedLang==="Malayalam"?"ml-IN":"en-IN";
     rec.onstart = ()=>{ setListening(true); setOrbMode("listening"); };
     rec.onresult = e=>{ const t=e.results[0][0].transcript; setListening(false); setOrbMode("thinking"); sendMessage(t); };
     rec.onerror = ()=>{ setListening(false); setOrbMode("idle"); };
-    rec.onend = ()=>setListening(false);
+    rec.onend = ()=>{ setListening(false); setOrbMode("idle"); };
     rec.start();
-  };
-
-  const orbColors = {
-    idle:{ bg:"radial-gradient(circle at 35% 30%, #ddd6fe, #7c3aed 50%, #1e1b4b)", shadow:"0 0 60px 20px rgba(124,58,237,0.6)" },
-    listening:{ bg:"radial-gradient(circle at 35% 30%, #bbf7d0, #16a34a 50%, #052e16)", shadow:"0 0 60px 25px rgba(22,163,74,0.65)" },
-    thinking:{ bg:"radial-gradient(circle at 35% 30%, #fef08a, #d97706 50%, #451a03)", shadow:"0 0 60px 25px rgba(217,119,6,0.65)" },
-    speaking:{ bg:"radial-gradient(circle at 35% 30%, #f9a8d4, #ec4899 50%, #500724)", shadow:"0 0 70px 30px rgba(236,72,153,0.75)" },
   };
 
   return (
     <div style={{ display:"flex",height:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',sans-serif",overflow:"hidden" }}>
       <style>{STYLES}</style>
-
-      {/* ── SIDEBAR ── */}
       <div style={{ width:"260px",background:"rgba(255,255,255,0.025)",borderRight:"1px solid rgba(255,255,255,0.06)",display:"flex",flexDirection:"column",flexShrink:0 }}>
-
-        {/* Logo + New Chat */}
         <div style={{ padding:"20px 16px",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ display:"flex",alignItems:"center",gap:"10px",marginBottom:"16px" }}>
             <MahaLogo size={32}/>
@@ -282,16 +256,15 @@ function MainApp({ user, onLogout }) {
           </button>
         </div>
 
-        {/* Chat / Voice toggle */}
+        {/* Chat / Free Call toggle */}
         <div style={{ padding:"12px 16px",display:"flex",gap:"6px",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-          {[{k:"chat",icon:"💬",label:"Chat"},{k:"voice",icon:"🎙️",label:"Voice"}].map(v=>(
+          {[{k:"chat",icon:"💬",label:"Chat"},{k:"voice",icon:"📞",label:"Free Call"}].map(v=>(
             <button key={v.k} onClick={()=>setView(v.k)} style={{ flex:1,padding:"8px",background:view===v.k?"rgba(124,58,237,0.3)":"rgba(255,255,255,0.04)",border:`1px solid ${view===v.k?"rgba(124,58,237,0.5)":"rgba(255,255,255,0.08)"}`,borderRadius:"8px",color:view===v.k?"#c4b5fd":"rgba(255,255,255,0.45)",fontSize:"12px",fontWeight:"600",cursor:"pointer",transition:"all 0.2s" }}>
               {v.icon} {v.label}
             </button>
           ))}
         </div>
 
-        {/* History */}
         <div style={{ flex:1,overflowY:"auto",padding:"12px 8px" }}>
           <div style={{ fontSize:"10px",color:"rgba(255,255,255,0.25)",letterSpacing:"2px",padding:"0 8px 10px",textTransform:"uppercase" }}>Conversations</div>
           {conversations.length===0&&(
@@ -309,14 +282,11 @@ function MainApp({ user, onLogout }) {
               </div>
               <button onClick={e=>deleteConversation(conv.id,e)} style={{ background:"transparent",border:"none",color:"rgba(255,255,255,0.25)",cursor:"pointer",padding:"4px 6px",borderRadius:"4px",fontSize:"13px",transition:"all 0.2s",flexShrink:0 }}
                 onMouseEnter={e=>e.currentTarget.style.color="#ef4444"}
-                onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.25)"}>
-                🗑️
-              </button>
+                onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.25)"}>🗑️</button>
             </div>
           ))}
         </div>
 
-        {/* Profile + Logout */}
         <div style={{ padding:"12px",borderTop:"1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ display:"flex",alignItems:"center",gap:"10px",padding:"10px",borderRadius:"10px",background:"rgba(255,255,255,0.04)",marginBottom:"8px" }}>
             <div style={{ width:"34px",height:"34px",borderRadius:"50%",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"15px",fontWeight:"700",flexShrink:0 }}>
@@ -329,33 +299,30 @@ function MainApp({ user, onLogout }) {
           </div>
           <button onClick={onLogout} style={{ width:"100%",padding:"9px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:"8px",color:"#f87171",fontSize:"13px",cursor:"pointer",transition:"all 0.2s" }}
             onMouseEnter={e=>e.currentTarget.style.background="rgba(239,68,68,0.15)"}
-            onMouseLeave={e=>e.currentTarget.style.background="rgba(239,68,68,0.08)"}>
-            Sign Out
-          </button>
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(239,68,68,0.08)"}>Sign Out</button>
         </div>
       </div>
 
-      {/* ── MAIN CONTENT ── */}
       <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"radial-gradient(ellipse at top right, rgba(124,58,237,0.06) 0%, transparent 50%)" }}>
-
-        {/* Header */}
         <div style={{ padding:"14px 24px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(0,0,0,0.4)",backdropFilter:"blur(20px)" }}>
           <div>
             <div style={{ fontSize:"15px",fontWeight:"600",color:"#fff" }}>
-              {conversations.find(c=>c.id===activeId)?.title||"New Conversation"}
+              {view==="voice"?"Free Call":conversations.find(c=>c.id===activeId)?.title||"New Conversation"}
             </div>
             <div style={{ fontSize:"11px",color:"rgba(255,255,255,0.3)",marginTop:"2px" }}>
               {orbMode==="idle"?"● Maha is ready":orbMode==="listening"?"🎤 Listening...":orbMode==="thinking"?"💭 Thinking...":"🔊 Speaking..."}
             </div>
           </div>
-          <select value={selectedLang} onChange={e=>setSelectedLang(e.target.value)} style={{ padding:"8px 12px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#fff",fontSize:"13px",cursor:"pointer",outline:"none" }}>
-            {["English","Telugu","Hindi","Tamil","Kannada","Malayalam","Marathi","Bengali","Gujarati","Punjabi"].map(l=>(
-              <option key={l} value={l} style={{ background:"#1a1a2e" }}>{l}</option>
-            ))}
-          </select>
+          {view==="chat"&&(
+            <select value={selectedLang} onChange={e=>setSelectedLang(e.target.value)} style={{ padding:"8px 12px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#fff",fontSize:"13px",cursor:"pointer",outline:"none" }}>
+              {["Telugu","English","Hindi","Tamil","Kannada","Malayalam","Marathi","Bengali","Gujarati","Punjabi"].map(l=>(
+                <option key={l} value={l} style={{ background:"#1a1a2e" }}>{l}</option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {/* ── CHAT VIEW ── */}
+        {/* CHAT VIEW */}
         {view==="chat"&&(
           <>
             <div style={{ flex:1,overflowY:"auto",padding:"24px",display:"flex",flexDirection:"column",gap:"14px" }}>
@@ -365,7 +332,7 @@ function MainApp({ user, onLogout }) {
                   <div style={{ fontSize:"22px",fontWeight:"700",color:"#fff",marginTop:"20px",marginBottom:"8px" }}>Hello, {user?.name||"Friend"}! 👋</div>
                   <div style={{ color:"rgba(255,255,255,0.4)",fontSize:"15px",marginBottom:"32px" }}>How can Maha help you today?</div>
                   <div style={{ display:"flex",gap:"10px",justifyContent:"center",flexWrap:"wrap" }}>
-                    {["Tell me about yourself","Nenu ela unnanu?","Aap kaise hain?","Help me practice speaking"].map(s=>(
+                    {["Ela unnanu?","Tell me about yourself","Oka recipe chepu","Naa kosam emi cheyagalavu?"].map(s=>(
                       <button key={s} onClick={()=>sendMessage(s)} style={{ padding:"10px 18px",background:"rgba(124,58,237,0.1)",border:"1px solid rgba(124,58,237,0.25)",borderRadius:"20px",color:"#c4b5fd",fontSize:"13px",cursor:"pointer",transition:"all 0.2s" }}
                         onMouseEnter={e=>e.currentTarget.style.background="rgba(124,58,237,0.2)"}
                         onMouseLeave={e=>e.currentTarget.style.background="rgba(124,58,237,0.1)"}>
@@ -397,8 +364,6 @@ function MainApp({ user, onLogout }) {
               )}
               <div ref={messagesEndRef}/>
             </div>
-
-            {/* Chat Input */}
             <div style={{ padding:"16px 24px",borderTop:"1px solid rgba(255,255,255,0.06)",background:"rgba(0,0,0,0.5)",backdropFilter:"blur(20px)",display:"flex",gap:"10px",alignItems:"center" }}>
               <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage(input)} placeholder={`Message Maha in ${selectedLang}...`} style={{ flex:1,padding:"13px 16px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",color:"#fff",fontSize:"14px",outline:"none" }}/>
               <button onClick={startListening} style={{ padding:"13px 16px",borderRadius:"12px",border:"none",cursor:"pointer",background:listening?"#ef4444":"rgba(255,255,255,0.07)",color:"#fff",fontSize:"18px",transition:"all 0.2s" }}>
@@ -411,52 +376,15 @@ function MainApp({ user, onLogout }) {
           </>
         )}
 
-        {/* ── VOICE VIEW ── */}
+        {/* FREE CALL VIEW - replaces Voice tab */}
         {view==="voice"&&(
-          <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px",background:"radial-gradient(ellipse at center, rgba(124,58,237,0.08) 0%, transparent 60%)" }}>
-            <div style={{ fontSize:"13px",color:"rgba(255,255,255,0.4)",letterSpacing:"3px",marginBottom:"30px",textTransform:"uppercase" }}>
-              {orbMode==="idle"?"Tap orb to speak":orbMode==="listening"?"🎤 Listening...":orbMode==="thinking"?"💭 Maha is thinking...":"🔊 Maha is speaking..."}
-            </div>
-
-            {/* Small orb for voice */}
-            <div style={{ cursor:"pointer",position:"relative" }} onClick={orbMode==="idle"?startListening:undefined}>
-              <div style={{ position:"absolute",inset:"-60px",background:"radial-gradient(circle, rgba(124,58,237,0.15) 0%, transparent 70%)",filter:"blur(20px)",animation:"ambientPulse 3s ease-in-out infinite" }}/>
-              <div style={{ width:"180px",height:"180px",borderRadius:"50%",background:orbColors[orbMode].bg,boxShadow:orbColors[orbMode].shadow,animation:"orbFloat 4s ease-in-out infinite",display:"flex",alignItems:"center",justifyContent:"center",gap:"5px",position:"relative" }}>
-                <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:"radial-gradient(circle at 30% 25%, rgba(255,255,255,0.3) 0%, transparent 50%)" }}/>
-                {["bar1","bar2","bar3","bar4","bar3","bar2","bar1"].map((anim,i)=>(
-                  <div key={i} style={{ width:"5px",borderRadius:"4px",background:"linear-gradient(to top, rgba(255,255,255,0.4), rgba(255,255,255,1))",animation:`${anim} ${0.7+i*0.1}s ease-in-out infinite`,animationDelay:`${i*0.08}s`,boxShadow:"0 0 8px rgba(255,255,255,0.9)",zIndex:1 }}/>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginTop:"32px",fontSize:"14px",color:"rgba(255,255,255,0.35)" }}>
-              {orbMode==="idle"?"Tap the orb to start speaking":""}
-            </div>
-
-            {/* Last message */}
-            {messages.length>0&&(
-              <div style={{ marginTop:"32px",maxWidth:"500px",width:"100%",padding:"20px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",textAlign:"center",animation:"fadeIn 0.4s ease" }}>
-                <div style={{ fontSize:"11px",color:"rgba(255,255,255,0.25)",marginBottom:"10px",letterSpacing:"2px" }}>LAST MESSAGE</div>
-                <div style={{ fontSize:"15px",color:"rgba(255,255,255,0.8)",lineHeight:"1.6" }}>
-                  {messages[messages.length-1]?.text}
-                </div>
-              </div>
-            )}
-
-            {/* Voice input */}
-            <div style={{ marginTop:"24px",display:"flex",gap:"12px",alignItems:"center" }}>
-              <button onClick={startListening} disabled={listening||orbMode!=="idle"} style={{ padding:"14px 32px",background:listening?"rgba(239,68,68,0.2)":"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"12px",color:"#fff",fontSize:"15px",fontWeight:"700",cursor:"pointer",opacity:orbMode!=="idle"&&!listening?0.5:1 }}>
-                {listening?"🔴 Listening...":"🎤 Speak to Maha"}
-              </button>
-            </div>
-          </div>
+          <FreeCall onBack={()=>setView("chat")} onSignUp={()=>{}} embedded={true}/>
         )}
       </div>
     </div>
   );
 }
 
-// ── LANDING ────────────────────────────────────────────────────────────────────
 function Landing({ onCall, onSignUp, onSignIn }) {
   return (
     <div style={{ background:"#000",minHeight:"100vh",color:"#fff",fontFamily:"'Inter',sans-serif",animation:"fadeIn 0.8s ease" }}>
@@ -519,11 +447,11 @@ function Landing({ onCall, onSignUp, onSignIn }) {
 
       <section style={{ padding:"80px 60px",textAlign:"center",background:"radial-gradient(ellipse at center, rgba(124,58,237,0.12) 0%, transparent 60%)" }}>
         <h2 style={{ fontSize:"42px",fontWeight:"800",marginBottom:"16px" }}>Ready to Talk?</h2>
-        <p style={{ color:"rgba(255,255,255,0.5)",marginBottom:"40px" }}>No signup needed. Start your free 2-minute voice call right now.</p>
+        <p style={{ color:"rgba(255,255,255,0.5)",marginBottom:"40px" }}>No signup needed. Start your free voice call right now.</p>
         <button onClick={onCall} style={{ padding:"20px 60px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"14px",color:"#fff",fontSize:"18px",fontWeight:"800",cursor:"pointer",boxShadow:"0 0 60px rgba(124,58,237,0.5)" }}>
           🎤 Start Free Call Now
         </button>
-        <p style={{ color:"rgba(255,255,255,0.25)",marginTop:"16px",fontSize:"13px" }}>2 minutes free · No credit card · No signup</p>
+        <p style={{ color:"rgba(255,255,255,0.25)",marginTop:"16px",fontSize:"13px" }}>No time limit · No credit card · No signup needed</p>
       </section>
 
       <footer style={{ padding:"40px 60px",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"16px" }}>
@@ -534,7 +462,7 @@ function Landing({ onCall, onSignUp, onSignIn }) {
         <div style={{ color:"rgba(255,255,255,0.3)",fontSize:"13px" }}>© 2026 Maha.ai · Your Universe, Your AI</div>
         <div style={{ display:"flex",gap:"24px" }}>
           {["Privacy","Terms","Contact"].map(item=>(
-            <a key={item} href="#" style={{ color:"rgba(255,255,255,0.3)",fontSize:"13px",textDecoration:"none" }}>{item}</a>
+            <a key={item} href="/" style={{ color:"rgba(255,255,255,0.3)",fontSize:"13px",textDecoration:"none" }}>{item}</a>
           ))}
         </div>
       </footer>
@@ -542,19 +470,19 @@ function Landing({ onCall, onSignUp, onSignIn }) {
   );
 }
 
-// ── FREE CALL ──────────────────────────────────────────────────────────────────
-function FreeCall({ onBack }) {
+// FREE CALL - No time limit, works on landing and inside app
+function FreeCall({ onBack, onSignUp, embedded = false }) {
   const [phase, setPhase] = useState("start");
   const [orbMode, setOrbMode] = useState("idle");
-  const [timeLeft, setTimeLeft] = useState(120);
-  const [statusText, setStatusText] = useState("Tap to start your free call");
+  const [statusText, setStatusText] = useState("Tap to start your call");
+  const [errorText, setErrorText] = useState("");
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
   const isSpeakingRef = useRef(false);
   const silenceTimerRef = useRef(null);
   const finalTranscriptRef = useRef("");
-  const timerRef = useRef(null);
   const isActiveRef = useRef(false);
+  const audioRef = useRef(null);
 
   const orbColors = {
     idle:     { bg: "radial-gradient(circle at 35% 30%, #ddd6fe, #7c3aed 50%, #1e1b4b)", shadow: "0 0 80px 30px rgba(124,58,237,0.6)" },
@@ -563,172 +491,127 @@ function FreeCall({ onBack }) {
     speaking: { bg: "radial-gradient(circle at 35% 30%, #f9a8d4, #ec4899 50%, #500724)", shadow: "0 0 80px 30px rgba(236,72,153,0.8)" },
   };
 
-  const speakText = (text, onDone) => {
-  window.speechSynthesis.cancel();
-  setTimeout(() => {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.88;
-    u.pitch = 1.1;
-    u.volume = 1;
-    isSpeakingRef.current = true;
-    setOrbMode("speaking");
-    setStatusText("Maha is speaking...");
-    u.onend = () => {
-      isSpeakingRef.current = false;
-      if (onDone) onDone();
-    };
-    u.onerror = () => {
-      isSpeakingRef.current = false;
-      if (onDone) onDone();
-    };
-    const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(v =>
-      v.lang.includes("en-IN") ||
-      v.name.toLowerCase().includes("zira") ||
-      v.name.toLowerCase().includes("heera")
-    );
-    if (voice) u.voice = voice;
-    window.speechSynthesis.speak(u);
-    const timeout = Math.max(text.length * 70, 3000);
-    setTimeout(() => {
-      if (isSpeakingRef.current) {
-        isSpeakingRef.current = false;
-        window.speechSynthesis.cancel();
-        if (onDone) onDone();
-      }
-    }, timeout);
-  }, 200);
-};
-
   const stopSpeaking = () => {
-    if (isSpeakingRef.current) {
-      window.speechSynthesis.cancel();
-      isSpeakingRef.current = false;
-    }
+    window.speechSynthesis?.cancel();
+    if(audioRef.current){ audioRef.current.pause(); audioRef.current = null; }
+    isSpeakingRef.current = false;
+  };
+
+  const speakText = (text, onDone) => {
+    window.speechSynthesis?.cancel();
+    setTimeout(() => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.88; u.pitch = 1.1; u.volume = 1;
+      isSpeakingRef.current = true;
+      setOrbMode("speaking");
+      setStatusText("Maha is speaking...");
+      u.onend = () => { isSpeakingRef.current = false; onDone?.(); };
+      u.onerror = () => { isSpeakingRef.current = false; onDone?.(); };
+      const voices = window.speechSynthesis?.getVoices() || [];
+      const voice = voices.find(v => v.lang.includes("te-IN")) || voices.find(v => v.lang.includes("en-IN")) || voices[0];
+      if(voice) u.voice = voice;
+      window.speechSynthesis?.speak(u);
+      setTimeout(() => {
+        if(isSpeakingRef.current){ window.speechSynthesis?.cancel(); isSpeakingRef.current = false; onDone?.(); }
+      }, Math.max(text.length * 80, 4000));
+    }, 150);
+  };
+
+  const playSarvamAudio = (b64, text, onDone) => {
+    try {
+      const bytes = atob(b64);
+      const buf = new ArrayBuffer(bytes.length);
+      const view = new Uint8Array(buf);
+      for(let i=0;i<bytes.length;i++) view[i]=bytes.charCodeAt(i);
+      const blob = new Blob([buf], {type:"audio/wav"});
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      isSpeakingRef.current = true;
+      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current=null; isSpeakingRef.current=false; onDone?.(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current=null; isSpeakingRef.current=false; speakText(text, onDone); };
+      audio.play().catch(() => speakText(text, onDone));
+    } catch(e) { speakText(text, onDone); }
   };
 
   const startContinuousListening = () => {
+    if(!isActiveRef.current) return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch(e) {}
-    }
-
+    if(!SR){ setErrorText("Use Chrome for voice!"); return; }
+    try{ recognitionRef.current?.abort(); }catch(e){}
     const rec = new SR();
+    rec.lang = "te-IN";
     rec.continuous = true;
     rec.interimResults = true;
-    rec.lang = "en-IN";
     finalTranscriptRef.current = "";
-
+    rec.onstart = () => { setOrbMode("listening"); setStatusText("Listening..."); };
     rec.onresult = (e) => {
-      if (isSpeakingRef.current) {
-        stopSpeaking();
-        setOrbMode("listening");
-        setStatusText("Listening...");
-      }
+      if(isSpeakingRef.current){ stopSpeaking(); setOrbMode("listening"); setStatusText("Listening..."); }
       let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        if(e.results[i].isFinal) final += e.results[i][0].transcript + " ";
       }
-      if (final.trim()) {
+      if(final.trim()){
         finalTranscriptRef.current += final;
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
           const msg = finalTranscriptRef.current.trim();
-          if (msg && socketRef.current && isActiveRef.current) {
+          if(msg && socketRef.current?.connected && isActiveRef.current){
             finalTranscriptRef.current = "";
             setOrbMode("thinking");
-            setStatusText("Thinking...");
-            socketRef.current.emit("voice_message", { text: msg });
+            setStatusText("Maha is thinking...");
+            socketRef.current.emit("voice_message", { text: msg, lang: "te" });
           }
-        }, 1300);
+        }, 1000);
       }
     };
-
     rec.onerror = (e) => {
-      if (e.error !== "no-speech" && e.error !== "aborted") {
-        setTimeout(() => {
-          if (isActiveRef.current) startContinuousListening();
-        }, 500);
-      }
+      if(e.error !== "no-speech" && e.error !== "aborted")
+        setTimeout(()=>{ if(isActiveRef.current) startContinuousListening(); }, 600);
     };
-
     rec.onend = () => {
-      if (isActiveRef.current && !isSpeakingRef.current) {
-        setTimeout(() => {
-          if (isActiveRef.current) startContinuousListening();
-        }, 300);
-      }
+      if(isActiveRef.current && !isSpeakingRef.current)
+        setTimeout(()=>{ if(isActiveRef.current) startContinuousListening(); }, 300);
     };
-
-    try { rec.start(); recognitionRef.current = rec; } catch(e) {}
+    try{ rec.start(); recognitionRef.current = rec; }catch(e){}
   };
 
   const startCall = () => {
-    if (phase !== "start") return;
+    if(phase !== "start") return;
     setPhase("connecting");
-    setStatusText("Connecting to Maha...");
     setOrbMode("thinking");
+    setStatusText("Connecting to Maha...");
+    setErrorText("");
 
-   const sock = io("https://maha-ai-4qbe.onrender.com", { transports: ["websocket", "polling"] });
+    const sock = io(BACKEND, { transports: ["polling"], reconnection: false, timeout: 8000 });
     socketRef.current = sock;
 
     sock.on("connect", () => {
-      setPhase("active");
       isActiveRef.current = true;
-      timerRef.current = setInterval(() => {
-        setTimeLeft(t => {
-          if (t <= 1) { clearInterval(timerRef.current); endCall(); return 0; }
-          return t - 1;
-        });
-      }, 1000);
-      sock.emit("start_call", { userName: "Friend" });
+      setPhase("active");
+      setStatusText("Connected!");
+      sock.emit("start_call", { userName: "Friend", lang: "te" });
     });
 
     sock.on("ai_response", (data) => {
-  if (data.audio) {
-    // Play Sarvam/ElevenLabs audio
-    setOrbMode("speaking");
-    setStatusText("Maha is speaking...");
-    const audioData = atob(data.audio);
-    const arrayBuffer = new ArrayBuffer(audioData.length);
-    const uint8Array = new Uint8Array(arrayBuffer);
-    for (let i = 0; i < audioData.length; i++) {
-      uint8Array[i] = audioData.charCodeAt(i);
-    }
-    const blob = new Blob([uint8Array], { type: "audio/wav" });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    isSpeakingRef.current = true;
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      isSpeakingRef.current = false;
-      if (isActiveRef.current) {
-        setOrbMode("listening");
-        setStatusText("Listening...");
-        startContinuousListening();
-      }
-    };
-    audio.play().catch(() => {
-      // Fallback to browser TTS
-      speakText(data.text, () => {
-        if (isActiveRef.current) startContinuousListening();
-      });
-    });
-  } else if (data.text) {
-    speakText(data.text, () => {
-      if (isActiveRef.current) startContinuousListening();
-    });
-  }
-});
-    sock.on("status", (data) => {
-      if (data.state !== "speaking") setStatusText(data.message);
+      if(!isActiveRef.current) return;
+      const afterSpoken = () => {
+        if(isActiveRef.current){ setOrbMode("listening"); startContinuousListening(); }
+      };
+      setOrbMode("speaking");
+      setStatusText("Maha is speaking...");
+      if(data.audio) playSarvamAudio(data.audio, data.text || "", afterSpoken);
+      else if(data.text) speakText(data.text, afterSpoken);
     });
 
     sock.on("connect_error", () => {
-      setStatusText("Connection failed. Is Flask running?");
-      setPhase("start");
-      setOrbMode("idle");
+      setPhase("start"); setOrbMode("idle");
+      setStatusText("Tap to start your call");
+      setErrorText("⚠️ Cannot connect. Make sure Flask is running on port 5000.");
+    });
+
+    sock.on("disconnect", () => {
+      if(isActiveRef.current){ setErrorText("Connection lost."); endCall(); }
     });
   };
 
@@ -736,9 +619,8 @@ function FreeCall({ onBack }) {
     isActiveRef.current = false;
     stopSpeaking();
     clearTimeout(silenceTimerRef.current);
-    clearInterval(timerRef.current);
-    if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch(e) {} }
-    if (socketRef.current) socketRef.current.disconnect();
+    try{ recognitionRef.current?.abort(); }catch(e){}
+    socketRef.current?.disconnect();
     setPhase("ended");
     setOrbMode("idle");
   };
@@ -747,104 +629,109 @@ function FreeCall({ onBack }) {
     return () => {
       isActiveRef.current = false;
       stopSpeaking();
-      clearInterval(timerRef.current);
-      if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch(e) {} }
-      if (socketRef.current) socketRef.current.disconnect();
+      try{ recognitionRef.current?.abort(); }catch(e){}
+      socketRef.current?.disconnect();
     };
   }, []);
 
-  const mins = Math.floor(timeLeft / 60);
-  const secs = timeLeft % 60;
+  const containerStyle = embedded
+    ? { flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#000008", color:"#fff", fontFamily:"'Inter',sans-serif", position:"relative", overflow:"hidden", padding:"20px" }
+    : { minHeight:"100vh", background:"#000008", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", color:"#fff", fontFamily:"'Inter',sans-serif", position:"relative", overflow:"hidden" };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#000008", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "'Inter', sans-serif", position: "relative", overflow: "hidden" }}>
+    <div style={containerStyle}>
       <style>{STYLES}</style>
+      <div style={{ position:"absolute",inset:0,pointerEvents:"none",background:
+        orbMode==="listening"?"radial-gradient(ellipse at center, rgba(22,163,74,0.09) 0%, transparent 65%)":
+        orbMode==="thinking"?"radial-gradient(ellipse at center, rgba(217,119,6,0.09) 0%, transparent 65%)":
+        orbMode==="speaking"?"radial-gradient(ellipse at center, rgba(236,72,153,0.09) 0%, transparent 65%)":
+        "radial-gradient(ellipse at center, rgba(124,58,237,0.08) 0%, transparent 65%)",transition:"background 0.6s ease"
+      }}/>
 
-      {/* Background glow */}
-      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at center, ${orbMode === "listening" ? "rgba(22,163,74,0.08)" : orbMode === "thinking" ? "rgba(217,119,6,0.08)" : orbMode === "speaking" ? "rgba(236,72,153,0.08)" : "rgba(124,58,237,0.08)"} 0%, transparent 70%)`, transition: "background 0.5s ease", pointerEvents: "none" }} />
-
-      {/* Back button */}
-      <button onClick={() => { endCall(); onBack(); }} style={{ position: "absolute", top: "24px", left: "24px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "13px", padding: "8px 14px" }}>← Back</button>
-
-      {/* Timer */}
-      {phase === "active" && (
-        <div style={{ position: "absolute", top: "24px", right: "24px", fontSize: "18px", fontWeight: "200", color: timeLeft < 30 ? "#ef4444" : "rgba(255,255,255,0.4)", fontVariantNumeric: "tabular-nums" }}>
-          {mins}:{secs.toString().padStart(2, "0")}
-        </div>
+      {!embedded && (
+        <button onClick={()=>{ endCall(); onBack(); }} style={{ position:"absolute",top:24,left:24,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"rgba(255,255,255,.5)",cursor:"pointer",fontSize:13,padding:"8px 14px" }}>← Back</button>
       )}
 
-      {/* Ended */}
-      {phase === "ended" && (
-        <div style={{ textAlign: "center", animation: "fadeIn 0.5s ease", zIndex: 2 }}>
-          <div style={{ fontSize: "52px", marginBottom: "20px" }}>📞</div>
-          <h2 style={{ fontSize: "26px", fontWeight: "700", marginBottom: "10px" }}>Call Ended</h2>
-          <p style={{ color: "rgba(255,255,255,0.4)", marginBottom: "40px", fontSize: "14px" }}>Your free trial has ended. Sign up to continue!</p>
-          <div style={{ display: "flex", gap: "14px", justifyContent: "center" }}>
-            <button style={{ padding: "14px 36px", background: "linear-gradient(135deg,#7c3aed,#4f46e5)", border: "none", borderRadius: "10px", color: "#fff", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}>Sign Up Free</button>
-            <button onClick={onBack} style={{ padding: "14px 36px", background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "10px", color: "#fff", fontSize: "15px", cursor: "pointer" }}>Go Back</button>
+      {phase==="ended" && (
+        <div style={{ textAlign:"center",animation:"fadeIn .5s ease",zIndex:2 }}>
+          <div style={{ fontSize:52,marginBottom:20 }}>📞</div>
+          <h2 style={{ fontSize:26,fontWeight:700,marginBottom:10 }}>Call Ended</h2>
+          <p style={{ color:"rgba(255,255,255,.4)",marginBottom:32,fontSize:14,lineHeight:1.6 }}>
+            Hope Maha was helpful!
+          </p>
+          <div style={{ display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap" }}>
+            <button onClick={()=>{ setPhase("start"); setOrbMode("idle"); setStatusText("Tap to start your call"); setErrorText(""); }}
+              style={{ padding:"14px 36px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:10,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer" }}>
+              📞 Call Again
+            </button>
+            {!embedded && (
+              <button onClick={onBack} style={{ padding:"14px 36px",background:"transparent",border:"1px solid rgba(255,255,255,.15)",borderRadius:10,color:"#fff",fontSize:15,cursor:"pointer" }}>Go Back</button>
+            )}
           </div>
         </div>
       )}
 
-      {/* Active call + Start */}
       {phase !== "ended" && (
-        <div style={{ textAlign: "center", zIndex: 2 }}>
-
-          {/* Logo */}
-          <div style={{ marginBottom: "32px" }}>
-            <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.3)", letterSpacing: "4px", textTransform: "uppercase" }}>
-              {phase === "start" ? "FREE TRIAL CALL" : phase === "connecting" ? "CONNECTING..." : "LIVE CALL"}
-            </div>
+        <div style={{ textAlign:"center",zIndex:2,width:"100%",maxWidth:520,padding:"0 24px" }}>
+          <div style={{ fontSize:12,color:"rgba(255,255,255,.25)",letterSpacing:"4px",textTransform:"uppercase",marginBottom:24 }}>
+            {phase==="start"?"VOICE CALL":phase==="connecting"?"CONNECTING...":"LIVE CALL"}
           </div>
 
-          {/* ORB */}
-          <div style={{ position: "relative", width: "240px", height: "240px", margin: "0 auto 40px", cursor: phase === "start" ? "pointer" : "default" }} onClick={phase === "start" ? startCall : undefined}>
-
-            {/* Pulse rings */}
-            {(phase === "active") && [1,2,3].map(i => (
-              <div key={i} style={{ position: "absolute", top: "50%", left: "50%", width: "240px", height: "240px", borderRadius: "50%", border: `1px solid ${orbMode === "listening" ? "rgba(22,163,74,0.4)" : orbMode === "speaking" ? "rgba(236,72,153,0.4)" : "rgba(124,58,237,0.3)"}`, animation: `pulse ${1.5+i*0.4}s ease-out infinite`, animationDelay: `${i*0.3}s` }} />
+          <div style={{ position:"relative",width:220,height:220,margin:"0 auto 32px",cursor:phase==="start"?"pointer":"default" }}
+            onClick={phase==="start"?startCall:undefined}>
+            {phase==="active"&&[1,2,3].map(i=>(
+              <div key={i} style={{ position:"absolute",top:"50%",left:"50%",width:220,height:220,marginTop:-110,marginLeft:-110,borderRadius:"50%",
+                border:`1.5px solid ${orbMode==="listening"?"rgba(22,163,74,.4)":orbMode==="speaking"?"rgba(236,72,153,.4)":"rgba(124,58,237,.3)"}`,
+                animation:`pulseRing ${1.2+i*0.5}s ease-out infinite`,animationDelay:`${i*0.35}s`
+              }}/>
             ))}
-
-            {/* Main orb */}
-            <div style={{ width: "240px", height: "240px", borderRadius: "50%", background: orbColors[orbMode].bg, boxShadow: orbColors[orbMode].shadow, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", animation: "orbFloat 4s ease-in-out infinite", position: "relative", transition: "background 0.4s ease, box-shadow 0.4s ease" }}>
-              <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "radial-gradient(circle at 30% 25%, rgba(255,255,255,0.3) 0%, transparent 50%)" }} />
-              {["bar1","bar2","bar3","bar4","bar3","bar2","bar1"].map((anim, i) => (
-                <div key={i} style={{ width: "5px", borderRadius: "4px", background: "linear-gradient(to top, rgba(255,255,255,0.4), rgba(255,255,255,1))", animation: `${anim} ${(phase === "active" && orbMode !== "idle") ? 0.4+i*0.04 : 0.7+i*0.1}s ease-in-out infinite`, animationDelay: `${i*0.08}s`, zIndex: 1 }} />
+            <div style={{ width:220,height:220,borderRadius:"50%",background:orbColors[orbMode].bg,boxShadow:orbColors[orbMode].shadow,
+              display:"flex",alignItems:"center",justifyContent:"center",gap:5,animation:"orbFloat 4s ease-in-out infinite",
+              position:"relative",transition:"background .5s ease, box-shadow .5s ease" }}>
+              <div style={{ position:"absolute",inset:0,borderRadius:"50%",background:"radial-gradient(circle at 30% 25%, rgba(255,255,255,.28) 0%, transparent 50%)",pointerEvents:"none" }}/>
+              {["bar1","bar2","bar3","bar4","bar3","bar2","bar1"].map((anim,i)=>(
+                <div key={i} style={{ width:5,borderRadius:4,background:"linear-gradient(to top, rgba(255,255,255,.4), rgba(255,255,255,1))",
+                  animation:`${anim} ${phase==="active"&&orbMode!=="idle"?0.38+i*0.04:0.75+i*0.1}s ease-in-out infinite`,
+                  animationDelay:`${i*0.07}s`,boxShadow:"0 0 8px rgba(255,255,255,.85)",zIndex:1
+                }}/>
               ))}
+              {phase==="start"&&<div style={{ position:"absolute",bottom:-36,left:"50%",transform:"translateX(-50%)",fontSize:11,color:"rgba(255,255,255,.35)",whiteSpace:"nowrap" }}>Tap to start</div>}
             </div>
           </div>
 
-          {/* Status */}
-          <div style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "32px", minHeight: "20px", transition: "all 0.3s" }}>
+          <div style={{ fontSize:13,color:"rgba(255,255,255,.55)",letterSpacing:2,textTransform:"uppercase",minHeight:20,marginBottom:8,transition:"all .3s" }}>
             {statusText}
           </div>
 
-          {/* Start button */}
-          {phase === "start" && (
-            <div>
-              <button onClick={startCall} style={{ padding: "18px 56px", background: "linear-gradient(135deg,#7c3aed,#4f46e5)", border: "none", borderRadius: "50px", color: "#fff", fontSize: "16px", fontWeight: "700", cursor: "pointer", boxShadow: "0 0 40px rgba(124,58,237,0.5)", letterSpacing: "1px" }}>
-                📞 Start Free Call
-              </button>
-              <p style={{ color: "rgba(255,255,255,0.2)", fontSize: "12px", marginTop: "14px" }}>2 minutes free · No signup · Real AI voice</p>
+          {errorText&&(
+            <div style={{ fontSize:12,color:"#f87171",background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.25)",borderRadius:8,padding:"8px 14px",margin:"0 auto 12px",maxWidth:360,lineHeight:1.5,animation:"fadeIn .3s ease" }}>
+              {errorText}
             </div>
           )}
 
-          {/* End call button */}
-          {phase === "active" && (
-            <button onClick={endCall} style={{ padding: "14px 40px", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "50px", color: "#f87171", fontSize: "14px", cursor: "pointer", transition: "all 0.2s" }}
-              onMouseEnter={e => e.currentTarget.style.background = "rgba(239,68,68,0.3)"}
-              onMouseLeave={e => e.currentTarget.style.background = "rgba(239,68,68,0.15)"}>
+          {phase==="start"&&(
+            <div style={{ marginTop:20 }}>
+              <button onClick={startCall} style={{ padding:"16px 48px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:50,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:"0 0 40px rgba(124,58,237,.5)",letterSpacing:1 }}>
+                📞 Start Call
+              </button>
+              <p style={{ color:"rgba(255,255,255,.2)",fontSize:11,marginTop:10 }}>No time limit · Speaks Telugu & more</p>
+            </div>
+          )}
+
+          {phase==="active"&&(
+            <button onClick={endCall} style={{ marginTop:12,padding:"12px 36px",background:"rgba(239,68,68,.15)",border:"1px solid rgba(239,68,68,.35)",borderRadius:50,color:"#f87171",fontSize:13,cursor:"pointer",transition:"all .2s" }}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(239,68,68,.28)"}
+              onMouseLeave={e=>e.currentTarget.style.background="rgba(239,68,68,.15)"}>
               📵 End Call
             </button>
           )}
 
-          {/* Color legend */}
-          {phase === "active" && (
-            <div style={{ display: "flex", gap: "20px", justifyContent: "center", marginTop: "32px" }}>
-              {[{ color: "#a78bfa", label: "Idle" }, { color: "#4ade80", label: "Listening" }, { color: "#fbbf24", label: "Thinking" }, { color: "#f472b6", label: "Speaking" }].map(s => (
-                <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: s.color, boxShadow: `0 0 6px ${s.color}` }} />
-                  <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.25)" }}>{s.label}</span>
+          {phase==="active"&&(
+            <div style={{ display:"flex",gap:16,justifyContent:"center",marginTop:24,flexWrap:"wrap" }}>
+              {[{c:"#a78bfa",l:"Idle"},{c:"#4ade80",l:"Listening"},{c:"#fbbf24",l:"Thinking"},{c:"#f472b6",l:"Speaking"}].map(s=>(
+                <div key={s.l} style={{ display:"flex",alignItems:"center",gap:5 }}>
+                  <div style={{ width:7,height:7,borderRadius:"50%",background:s.c,boxShadow:`0 0 6px ${s.c}` }}/>
+                  <span style={{ fontSize:10,color:"rgba(255,255,255,.28)" }}>{s.l}</span>
                 </div>
               ))}
             </div>
@@ -854,91 +741,87 @@ function FreeCall({ onBack }) {
     </div>
   );
 }
-// ── SIGN UP ──────────────────────────────────────────────────────────────────
+
 function SignUp({ onBack, onSuccess }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const handleSubmit = () => {
     if (!name || !email || !password) { alert("Fill all fields!"); return; }
     const user = { name, email };
     localStorage.setItem("mahaUser", JSON.stringify(user));
     onSuccess(user);
   };
-
   return (
-    <div style={{ minHeight:"100vh", background:"#000", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',sans-serif" }}>
+    <div style={{ minHeight:"100vh",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif" }}>
       <style>{STYLES}</style>
-      <div style={{ width:"100%", maxWidth:"400px", padding:"40px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"20px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"32px" }}>
+      <div style={{ width:"100%",maxWidth:"400px",padding:"40px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px" }}>
+        <div style={{ display:"flex",alignItems:"center",gap:"10px",marginBottom:"32px" }}>
           <MahaLogo size={32}/>
-          <span style={{ fontSize:"20px", fontWeight:"800", color:"#fff", letterSpacing:"-1px" }}>Maha<span style={{ color:"#a78bfa" }}>.ai</span></span>
+          <span style={{ fontSize:"20px",fontWeight:"800",color:"#fff",letterSpacing:"-1px" }}>Maha<span style={{ color:"#a78bfa" }}>.ai</span></span>
         </div>
-        <h2 style={{ color:"#fff", fontSize:"24px", fontWeight:"700", marginBottom:"8px" }}>Create account</h2>
-        <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"14px", marginBottom:"28px" }}>Join Maha.ai for free</p>
+        <h2 style={{ color:"#fff",fontSize:"24px",fontWeight:"700",marginBottom:"8px" }}>Create account</h2>
+        <p style={{ color:"rgba(255,255,255,0.4)",fontSize:"14px",marginBottom:"28px" }}>Join Maha.ai for free</p>
         {[
-          { label:"Your Name", value:name, set:setName, placeholder:"Enter your name", type:"text" },
-          { label:"Email", value:email, set:setEmail, placeholder:"Enter your email", type:"email" },
-          { label:"Password", value:password, set:setPassword, placeholder:"Create a password", type:"password" },
-        ].map(f => (
+          { label:"Your Name",value:name,set:setName,placeholder:"Enter your name",type:"text" },
+          { label:"Email",value:email,set:setEmail,placeholder:"Enter your email",type:"email" },
+          { label:"Password",value:password,set:setPassword,placeholder:"Create a password",type:"password" },
+        ].map(f=>(
           <div key={f.label} style={{ marginBottom:"16px" }}>
-            <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"12px", marginBottom:"6px" }}>{f.label}</div>
+            <div style={{ color:"rgba(255,255,255,0.5)",fontSize:"12px",marginBottom:"6px" }}>{f.label}</div>
             <input type={f.type} value={f.value} onChange={e=>f.set(e.target.value)} placeholder={f.placeholder}
-              style={{ width:"100%", padding:"12px 14px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", color:"#fff", fontSize:"14px", outline:"none", boxSizing:"border-box" }}/>
+              style={{ width:"100%",padding:"12px 14px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"10px",color:"#fff",fontSize:"14px",outline:"none",boxSizing:"border-box" }}/>
           </div>
         ))}
-        <button onClick={handleSubmit} style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#7c3aed,#4f46e5)", border:"none", borderRadius:"10px", color:"#fff", fontSize:"15px", fontWeight:"700", cursor:"pointer", marginTop:"8px" }}>
+        <button onClick={handleSubmit} style={{ width:"100%",padding:"13px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"10px",color:"#fff",fontSize:"15px",fontWeight:"700",cursor:"pointer",marginTop:"8px" }}>
           Create Account
         </button>
-        <div style={{ textAlign:"center", marginTop:"20px", color:"rgba(255,255,255,0.3)", fontSize:"13px" }}>
+        <div style={{ textAlign:"center",marginTop:"20px",color:"rgba(255,255,255,0.3)",fontSize:"13px" }}>
           Already have an account?{" "}
-          <span onClick={onBack} style={{ color:"#a78bfa", cursor:"pointer" }}>Sign In</span>
+          <span onClick={onBack} style={{ color:"#a78bfa",cursor:"pointer" }}>Sign In</span>
         </div>
-        <button onClick={onBack} style={{ width:"100%", padding:"10px", background:"transparent", border:"none", color:"rgba(255,255,255,0.25)", fontSize:"13px", cursor:"pointer", marginTop:"12px" }}>← Back</button>
+        <button onClick={onBack} style={{ width:"100%",padding:"10px",background:"transparent",border:"none",color:"rgba(255,255,255,0.25)",fontSize:"13px",cursor:"pointer",marginTop:"12px" }}>← Back</button>
       </div>
     </div>
   );
 }
 
-// ── SIGN IN ──────────────────────────────────────────────────────────────────
 function SignIn({ onBack, onSuccess }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const handleSubmit = () => {
     if (!email || !password) { alert("Fill all fields!"); return; }
     const user = { name: email.split("@")[0], email };
     localStorage.setItem("mahaUser", JSON.stringify(user));
     onSuccess(user);
   };
-
   return (
-    <div style={{ minHeight:"100vh", background:"#000", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',sans-serif" }}>
+    <div style={{ minHeight:"100vh",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif" }}>
       <style>{STYLES}</style>
-      <div style={{ width:"100%", maxWidth:"400px", padding:"40px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"20px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"32px" }}>
+      <div style={{ width:"100%",maxWidth:"400px",padding:"40px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px" }}>
+        <div style={{ display:"flex",alignItems:"center",gap:"10px",marginBottom:"32px" }}>
           <MahaLogo size={32}/>
-          <span style={{ fontSize:"20px", fontWeight:"800", color:"#fff", letterSpacing:"-1px" }}>Maha<span style={{ color:"#a78bfa" }}>.ai</span></span>
+          <span style={{ fontSize:"20px",fontWeight:"800",color:"#fff",letterSpacing:"-1px" }}>Maha<span style={{ color:"#a78bfa" }}>.ai</span></span>
         </div>
-        <h2 style={{ color:"#fff", fontSize:"24px", fontWeight:"700", marginBottom:"8px" }}>Welcome back</h2>
-        <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"14px", marginBottom:"28px" }}>Sign in to Maha.ai</p>
+        <h2 style={{ color:"#fff",fontSize:"24px",fontWeight:"700",marginBottom:"8px" }}>Welcome back</h2>
+        <p style={{ color:"rgba(255,255,255,0.4)",fontSize:"14px",marginBottom:"28px" }}>Sign in to Maha.ai</p>
         {[
-          { label:"Email", value:email, set:setEmail, placeholder:"Enter your email", type:"email" },
-          { label:"Password", value:password, set:setPassword, placeholder:"Enter your password", type:"password" },
-        ].map(f => (
+          { label:"Email",value:email,set:setEmail,placeholder:"Enter your email",type:"email" },
+          { label:"Password",value:password,set:setPassword,placeholder:"Enter your password",type:"password" },
+        ].map(f=>(
           <div key={f.label} style={{ marginBottom:"16px" }}>
-            <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"12px", marginBottom:"6px" }}>{f.label}</div>
+            <div style={{ color:"rgba(255,255,255,0.5)",fontSize:"12px",marginBottom:"6px" }}>{f.label}</div>
             <input type={f.type} value={f.value} onChange={e=>f.set(e.target.value)} placeholder={f.placeholder}
-              style={{ width:"100%", padding:"12px 14px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", color:"#fff", fontSize:"14px", outline:"none", boxSizing:"border-box" }}/>
+              style={{ width:"100%",padding:"12px 14px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"10px",color:"#fff",fontSize:"14px",outline:"none",boxSizing:"border-box" }}/>
           </div>
         ))}
-        <button onClick={handleSubmit} style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#7c3aed,#4f46e5)", border:"none", borderRadius:"10px", color:"#fff", fontSize:"15px", fontWeight:"700", cursor:"pointer", marginTop:"8px" }}>
+        <button onClick={handleSubmit} style={{ width:"100%",padding:"13px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"10px",color:"#fff",fontSize:"15px",fontWeight:"700",cursor:"pointer",marginTop:"8px" }}>
           Sign In
         </button>
-        <button onClick={onBack} style={{ width:"100%", padding:"10px", background:"transparent", border:"none", color:"rgba(255,255,255,0.25)", fontSize:"13px", cursor:"pointer", marginTop:"12px" }}>← Back</button>
+        <button onClick={onBack} style={{ width:"100%",padding:"10px",background:"transparent",border:"none",color:"rgba(255,255,255,0.25)",fontSize:"13px",cursor:"pointer",marginTop:"12px" }}>← Back</button>
       </div>
     </div>
   );
 }
+
 export default App;

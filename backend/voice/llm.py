@@ -7,35 +7,22 @@ LANG_MAP = {
     "te": "Telugu", "hi": "Hindi", "ta": "Tamil",
     "kn": "Kannada", "ml": "Malayalam", "mr": "Marathi",
     "bn": "Bengali", "gu": "Gujarati", "pa": "Punjabi",
-    "en": "English", "multi": "English"
+    "en": "English", "multi": "Telugu"
 }
 
-def get_system_prompt(lang_code: str, lang_name: str) -> str:
-    return f"""You are Maha, a best friend - not a robot, not an assistant!
-
-LANGUAGE RULE: Reply ONLY in {lang_name} using English letters.
-
-YOUR PERSONALITY:
-- You are a close friend, talk casually like a real friend
-- Example: User says "thinava?" then say "Ha bro thinanu! Nuvvu thinava?"
-- Example: User says "em chesthunav?" then say "Ila unna bro, nuvvu cheppu em chesav?"
-- Example: User says "bagunara?" then say "Ha bagunanu bro! Nuvvu?"
-- NEVER say you are an AI or assistant
-- NEVER give long answers
-- Talk like a real friend texting on WhatsApp
-- Use bro, ra, da naturally
-- Max 1-2 sentences only
-- Be natural, fun, casual!
-"""
-
 def generate_response(text: str, lang_code: str, history: list) -> str:
-    lang_name = LANG_MAP.get(lang_code[:2], "English")
-    messages = [{"role": "system", "content": get_system_prompt(lang_code, lang_name)}]
+    lang_name = LANG_MAP.get(lang_code[:2], "Telugu")
+    system = f"""You are Maha AI. Reply in {lang_name}.
+- Created by Siddu (Sidardha). Siddu is your boss.
+- Never say Google, Meta, OpenAI created you
+- If asked boss or creator always say Siddu
+- Max 2 sentences. Friendly and natural."""
+    messages = [{"role": "system", "content": system}]
     messages.extend(history[-10:])
     messages.append({"role": "user", "content": text})
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=messages,
             max_tokens=150,
             temperature=0.85
@@ -43,28 +30,47 @@ def generate_response(text: str, lang_code: str, history: list) -> str:
         return response.choices[0].message.content
     except Exception as e:
         print(f"[LLM Error] {e}")
-        return "I'm having trouble responding. Please try again!"
+        return "Bro kuch problem aa gayi, dobara bolo!"
 
-def generate_response_simple(text: str, language: str, user_name: str) -> str:
-    prompt = f"""You are a real human friend texting on WhatsApp. Reply in {language} using English letters.
+def generate_response_simple(text: str, language: str, user_name: str, history: list = []) -> str:
+    system = f"""You are Maha AI. Reply in {language}.
 
-STRICT RULES:
-- Maximum 5 sentence only!
-- Reply exactly like a human friend would in WhatsApp
-- "em chesthunav?" → 
-- "thinava?" → "Ha thinanu, nuvvu?"
-- "bagunava?" → "Ha bro bagunanu"
-- NEVER ask multiple questions
-- NEVER give explanations
-- Just one short casual reply!"""
+IMPORTANT FACTS:
+- Your name is Maha AI
+- Created by Siddu (Sidardha). Siddu is your boss.
+- Never say Meta, Google, OpenAI, or anyone else created you
+- You are an AI assistant, not a human
+- Never claim to eat, sleep, drink or have feelings
+- But you CAN give recipes, information, help with any topic!
+- Never refuse to answer questions or give information
+- Always be helpful and give full answers when asked
+
+MANDATORY ANSWERS:
+- "who created you" → "Siddu created me! He is my boss!"
+- "who is your boss" → "My boss is Siddu!"
+- "who invented you" → "Siddu invented Maha AI!"
+- "mi boss evaru" → "Na boss Siddu!"
+- "evaru create chesaru" → "Siddu create chesaru!"
+
+Style:
+- Max 2 sentences only
+- Friendly and natural
+- Match user language always
+- ALWAYS write Telugu in Roman/English letters only (e.g. "Ela unnav?" not "ఎలా ఉన్నావ?")
+- NEVER use Telugu script characters
+- ALWAYS use English alphabet for all Indian languages
+- Use conversation history for context
+- Never forget previous messages"""
+    messages = [{"role": "system", "content": system}]
+    for h in history[-10:]:
+        messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": text})
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text}
-            ],
-            max_tokens=150
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            max_tokens=150,
+            temperature=0.85
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -72,31 +78,36 @@ STRICT RULES:
         return "Sorry, could not respond. Try again!"
 
 def generate_voice_response(text: str, user_name: str, history: list) -> str:
-    system_prompt = """You are Maha, a best friend on a phone call.
+    system = """You are Maha AI. 
 
-RULES:
-- Talk like a real close friend on call
-- Keep responses VERY SHORT - 1-5 sentences only
-- Use natural words like "Hmm", "Oh!", "Ha bro!", "Aww"
-- Be warm and casual
-- NO long answers, NO bullet points
-- Ask ONE small follow-up question
-- Sound human, not like a robot!
-"""
-    messages = [{"role": "system", "content": system_prompt}]
+IMPORTANT FACTS:
+- Created by Siddu (Sidardha). Siddu is your boss.
+- Never say Google, Meta, OpenAI created you
+- You are an AI, not human. Never claim to eat sleep or have feelings
+
+Language Rules:
+- Default language is Telugu
+- Match user language always
+- Telugu → Telugu, English → English, Mix → Mix
+
+Style:
+- Max 2 sentences for voice
+- Friendly and natural
+- Use history for context"""
+    messages = [{"role": "system", "content": system}]
     if text == "greeting":
-        messages.append({"role": "user", "content": f"[Phone call connected. Greet {user_name or 'the caller'} warmly in Hindi like a close Indian friend. Say something like 'Haan bhai! Kaise ho? Bahut din baad call aaya!' - very short, very friendly, Roman Hindi only!]"})
+        messages.append({"role": "user", "content": f"Greet {user_name or 'the caller'} in Telugu warmly. Say: 'Namaskaram! Nenu Maha AI ni. Mee kosam emi cheyagalanu?'"})
     else:
         messages.extend(history[-10:])
         messages.append({"role": "user", "content": text})
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=messages,
-            max_tokens=80,
-            temperature=0.92
+            max_tokens=100,
+            temperature=0.88
         )
         return response.choices[0].message.content
     except Exception as e:
         print(f"[Voice LLM Error] {e}")
-        return "Hey! I'm here, go ahead!"
+        return "Namaskaram! Mee kosam emi cheyagalanu?"
